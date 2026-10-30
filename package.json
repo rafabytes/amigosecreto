@@ -1,6 +1,6 @@
 {
   "name": "amigosecreto-theme",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Tema WordPress para sorteio de amigo secreto (Parcel + Tailwind + Swup + React)",
   "scripts": {

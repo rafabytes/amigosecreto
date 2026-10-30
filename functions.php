@@ -5,7 +5,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'AS_THEME_VERSION', '1.0.0' );
+define( 'AS_THEME_VERSION', '1.1.0' );
 define( 'AS_THEME_DIR', get_template_directory() );
 define( 'AS_THEME_URI', get_template_directory_uri() );
 
