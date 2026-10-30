@@ -8,5 +8,6 @@ deployment:
     - export THEMES=$HOME/public_html/amigosecreto/wp-content/themes
     - export DEPLOYPATH=$THEMES/amigosecreto-theme/
     # Só copia se a pasta de temas existir, para nunca escrever num caminho errado.
+    # --chmod: o clone do cPanel tem permissões restritas; sem isso o Apache não lê CSS/JS/imagens (403).
     # --delete-excluded remove do servidor arquivos de desenvolvimento (src/, package.json…) que já estejam lá.
-    - /bin/test -d "$THEMES" && /bin/mkdir -p "$DEPLOYPATH" && /usr/bin/rsync -a --delete --delete-excluded --exclude=.git --exclude=.gitignore --exclude=.cpanel.yml --exclude=src/ --exclude=scripts/ --exclude=node_modules/ --exclude=package.json --exclude=package-lock.json --exclude=.postcssrc --exclude=README.md --exclude='*.zip' ./ "$DEPLOYPATH"
+    - /bin/test -d "$THEMES" && /bin/mkdir -p "$DEPLOYPATH" && /usr/bin/rsync -a --chmod=D755,F644 --delete --delete-excluded --exclude=.git --exclude=.gitignore --exclude=.cpanel.yml --exclude=src/ --exclude=scripts/ --exclude=node_modules/ --exclude=package.json --exclude=package-lock.json --exclude=.postcssrc --exclude=README.md --exclude='*.zip' ./ "$DEPLOYPATH"
