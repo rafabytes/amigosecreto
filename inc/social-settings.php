@@ -9,12 +9,10 @@ defined( 'ABSPATH' ) || exit;
 function as_social_fields() {
 	return [
 		'google'   => [
-			'google_client_id'     => [ 'label' => __( 'Client ID', 'amigosecreto' ), 'type' => 'text' ],
-			'google_client_secret' => [ 'label' => __( 'Client secret', 'amigosecreto' ), 'type' => 'password' ],
-			'google_birthday'      => [
-				'label' => __( 'Pedir data de nascimento', 'amigosecreto' ),
-				'type'  => 'checkbox',
-				'help'  => __( 'Usa o escopo user.birthday.read (People API). É um escopo sensível: em produção o app precisa passar pela verificação do Google.', 'amigosecreto' ),
+			'google_client_id' => [
+				'label' => __( 'Client ID', 'amigosecreto' ),
+				'type'  => 'text',
+				'help'  => __( 'O botão do Google só precisa do Client ID; o Client secret não é usado. O Google não fornece a data de nascimento nesse modo.', 'amigosecreto' ),
 			],
 		],
 		'facebook' => [
@@ -96,8 +94,13 @@ function as_social_settings_page() {
 					<?php endif; ?>
 				</h2>
 				<p>
-					<?php esc_html_e( 'URL de redirecionamento autorizada (cadastre no console do provedor):', 'amigosecreto' ); ?><br>
-					<code><?php echo esc_html( as_social_callback_url( $provider ) ); ?></code>
+					<?php if ( 'google' === $provider ) : ?>
+						<?php esc_html_e( 'Em "Origens JavaScript autorizadas" do cliente OAuth, cadastre:', 'amigosecreto' ); ?><br>
+						<code><?php echo esc_html( wp_parse_url( home_url(), PHP_URL_SCHEME ) . '://' . wp_parse_url( home_url(), PHP_URL_HOST ) . ( wp_parse_url( home_url(), PHP_URL_PORT ) ? ':' . wp_parse_url( home_url(), PHP_URL_PORT ) : '' ) ); ?></code>
+					<?php else : ?>
+						<?php esc_html_e( 'URL de redirecionamento autorizada (cadastre no console do provedor):', 'amigosecreto' ); ?><br>
+						<code><?php echo esc_html( as_social_callback_url( $provider ) ); ?></code>
+					<?php endif; ?>
 					— <a href="<?php echo esc_url( $consoles[ $provider ] ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'abrir console', 'amigosecreto' ); ?></a>
 				</p>
 				<table class="form-table" role="presentation">

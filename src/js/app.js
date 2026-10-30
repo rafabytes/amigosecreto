@@ -9,6 +9,7 @@ import Swup from 'swup';
 import SwupHeadPlugin from '@swup/head-plugin';
 import SwupProgressPlugin from '@swup/progress-plugin';
 import { mountIslands, unmountIslands } from './islands';
+import { mountGoogleButtons } from './lib/google';
 
 const swup = new Swup({
 	containers: ['#site-header', '#swup'],
@@ -22,9 +23,13 @@ const swup = new Swup({
 window.swup = swup;
 
 swup.hooks.before('content:replace', () => unmountIslands());
-swup.hooks.on('page:view', () => mountIslands());
+swup.hooks.on('page:view', () => {
+	mountIslands();
+	mountGoogleButtons();
+});
 
 mountIslands();
+mountGoogleButtons();
 
 /*
  * Botão "mostrar senha" dos formulários PHP (as_password_toggle()). Delegado no document para

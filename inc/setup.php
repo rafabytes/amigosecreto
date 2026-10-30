@@ -43,6 +43,8 @@ add_action( 'wp_enqueue_scripts', function () {
 		'nonce'   => wp_create_nonce( 'wp_rest' ),
 		'homeUrl' => esc_url_raw( home_url( '/' ) ),
 		'icons'   => as_icon_paths(),
+		// Botão "Sign in with Google" (src/js/lib/google.js); vazio se o Google não estiver configurado.
+		'googleClientId' => as_social_enabled( 'google' ) ? (string) as_social_setting( 'google_client_id' ) : '',
 		'routes'  => [
 			'dashboard'    => as_url( 'painel' ),
 			'wishlist'     => as_url( 'minha-lista' ),

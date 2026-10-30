@@ -349,7 +349,9 @@ function as_me_payload( $user_id ) {
 				'slug'       => $slug,
 				'label'      => $label,
 				'linked'     => $linked[ $slug ],
-				'connectUrl' => as_social_enabled( $slug ) ? as_social_start_url( $slug ) : null,
+				'enabled'    => as_social_enabled( $slug ),
+				// Facebook conecta por redirecionamento; Google pelo botão oficial (src/js/lib/google.js).
+				'connectUrl' => 'facebook' === $slug && as_social_enabled( $slug ) ? as_social_start_url( $slug ) : null,
 			];
 		}
 	}

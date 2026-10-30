@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Avatar, Notice, PasswordInput, Spinner } from '../components/ui';
 import { api } from '../lib/api';
+import { renderGoogleButton } from '../lib/google';
 
 /**
  * Perfil do usuário logado: foto, dados, contas Google/Facebook e senha.
@@ -202,6 +203,8 @@ function AccountsCard({ profile, onChange }) {
 								{busy === provider.slug && <Spinner />}
 								Desconectar
 							</button>
+						) : provider.slug === 'google' && provider.enabled ? (
+							<GoogleConnect onLinked={onChange} onError={setError} />
 						) : (
 							provider.connectUrl && (
 								<a href={provider.connectUrl} className="btn btn-soft btn-sm" data-no-swup>
@@ -215,4 +218,30 @@ function AccountsCard({ profile, onChange }) {
 			<Notice type="error">{error}</Notice>
 		</section>
 	);
+}
+
+/** Conecta a conta Google pelo botão oficial (src/js/lib/google.js). */
+function GoogleConnect({ onLinked, onError }) {
+	const ref = useRef(null);
+
+	useEffect(() => {
+		let active = true;
+		renderGoogleButton(ref.current, {
+			text: 'signin_with',
+			onCredential: async (credential) => {
+				onError('');
+				try {
+					const profile = await api('auth/google', { method: 'POST', body: { credential, link: true } });
+					if (active) onLinked(profile);
+				} catch (err) {
+					if (active) onError(err.message);
+				}
+			},
+		}).catch((err) => active && onError(err.message));
+		return () => {
+			active = false;
+		};
+	}, []);
+
+	return <div ref={ref} className="google-signin w-56" />;
 }

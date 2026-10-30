@@ -117,6 +117,10 @@
 	textarea.input {
 		@apply min-h-24 resize-y;
 	}
+	/* Botão oficial do Google (iframe renderizado pelo Google): reserva a altura para evitar "pulo". */
+	.google-signin {
+		@apply flex min-h-11 justify-center aria-busy:pointer-events-none aria-busy:opacity-60;
+	}
 	/* Botão "mostrar senha", sobreposto à direita do campo (input com pr-12). */
 	.password-toggle {
 		@apply absolute inset-y-0 right-0 grid w-12 place-items-center rounded-r-2xl text-ink/40 transition hover:text-ink focus-visible:text-grape;

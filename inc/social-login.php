@@ -1,12 +1,20 @@
 <?php
 /**
- * Login com Google e Facebook (OAuth 2.0, sem plugins).
+ * Login com Google e Facebook (sem plugins).
  *
- *   /auth/{google|facebook}/           inicia o login (ou conecta a conta, se já logado)
- *   /auth/{google|facebook}/callback/  retorno do provedor
+ * Google — botão oficial "Sign in with Google" (Google Identity Services), em src/js/lib/google.js.
+ *   O Google entrega ao JavaScript um ID token (JWT) que é enviado para a API:
+ *     GET  /wp-json/amigosecreto/v1/auth/google/nonce   nonce anti-repetição (também guardado em cookie)
+ *     POST /wp-json/amigosecreto/v1/auth/google         { credential, redirectTo?, link? }
+ *   Não usamos o redirecionamento OAuth do Google porque o retorno sempre traz
+ *   iss=https://accounts.google.com, que firewalls como o ModSecurity bloqueiam (erro 406).
+ *
+ * Facebook — OAuth 2.0 com redirecionamento:
+ *     /auth/facebook/            inicia o login (ou conecta a conta, se já logado)
+ *     /auth/facebook/callback/   retorno do Facebook
  *
  * Credenciais em Configurações → Login social (inc/social-settings.php) ou constantes no wp-config.php:
- * AS_GOOGLE_CLIENT_ID, AS_GOOGLE_CLIENT_SECRET, AS_FACEBOOK_APP_ID, AS_FACEBOOK_APP_SECRET.
+ * AS_GOOGLE_CLIENT_ID, AS_FACEBOOK_APP_ID, AS_FACEBOOK_APP_SECRET.
  *
  * Regras:
  *  - Conta já vinculada ao provedor → entra.
@@ -17,7 +25,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
-const AS_OAUTH_COOKIE = 'as_oauth_state';
+const AS_OAUTH_COOKIE        = 'as_oauth_state';
+const AS_GOOGLE_NONCE_COOKIE = 'as_google_nonce';
 
 function as_social_providers() {
 	return [
@@ -35,15 +44,15 @@ function as_social_setting( $key ) {
 	return $options[ $key ] ?? '';
 }
 
-function as_social_credentials( $provider ) {
-	return 'google' === $provider
-		? [ as_social_setting( 'google_client_id' ), as_social_setting( 'google_client_secret' ) ]
-		: [ as_social_setting( 'facebook_app_id' ), as_social_setting( 'facebook_app_secret' ) ];
-}
-
 function as_social_enabled( $provider ) {
-	[ $id, $secret ] = as_social_credentials( $provider );
-	return isset( as_social_providers()[ $provider ] ) && '' !== $id && '' !== $secret;
+	if ( 'google' === $provider ) {
+		// O botão do Google só precisa do Client ID (o token é validado sem o secret).
+		return '' !== (string) as_social_setting( 'google_client_id' );
+	}
+	if ( 'facebook' === $provider ) {
+		return '' !== (string) as_social_setting( 'facebook_app_id' ) && '' !== (string) as_social_setting( 'facebook_app_secret' );
+	}
+	return false;
 }
 
 /**
@@ -55,6 +64,160 @@ function as_social_enabled_providers() {
 	return array_filter( as_social_providers(), 'as_social_enabled', ARRAY_FILTER_USE_KEY );
 }
 
+/**
+ * Mensagens dos códigos de erro, exibidas em /entrar/, /perfil/ e nas respostas da API.
+ */
+function as_social_error_message( $code ) {
+	$messages = [
+		'disabled'     => __( 'Esse tipo de acesso não está disponível.', 'amigosecreto' ),
+		'state'        => __( 'A sessão de login expirou. Recarregue a página e tente novamente.', 'amigosecreto' ),
+		'denied'       => __( 'O acesso foi cancelado.', 'amigosecreto' ),
+		'provider'     => __( 'Não conseguimos falar com o provedor de login. Tente novamente em instantes.', 'amigosecreto' ),
+		'token'        => __( 'Não foi possível validar o login com o Google. Tente novamente.', 'amigosecreto' ),
+		'no_email'     => __( 'Sua conta não compartilhou um e-mail verificado. Libere o acesso ao e-mail ou entre com e-mail e senha.', 'amigosecreto' ),
+		'no_account'   => __( 'Não encontramos uma conta com esse e-mail. Peça ao organizador do grupo para convidar você.', 'amigosecreto' ),
+		'linked_other' => __( 'Essa conta já está vinculada a outro usuário.', 'amigosecreto' ),
+		'create'       => __( 'Não foi possível criar sua conta. Tente novamente.', 'amigosecreto' ),
+	];
+	return $messages[ $code ] ?? '';
+}
+
+function as_social_cookie( $name, $value, $ttl ) {
+	setcookie( $name, $value, [
+		'expires'  => $ttl > 0 ? time() + $ttl : time() - HOUR_IN_SECONDS,
+		'path'     => COOKIEPATH ?: '/',
+		'domain'   => COOKIE_DOMAIN ?: '',
+		'secure'   => is_ssl(),
+		'httponly' => true,
+		'samesite' => 'Lax',
+	] );
+}
+
+/* =========================================================================
+ * Google (Google Identity Services)
+ * ====================================================================== */
+
+add_action( 'rest_api_init', function () {
+	register_rest_route( 'amigosecreto/v1', '/auth/google/nonce', [
+		'methods'             => WP_REST_Server::READABLE,
+		'callback'            => function () {
+			$nonce = wp_generate_password( 32, false );
+			as_social_cookie( AS_GOOGLE_NONCE_COOKIE, $nonce, 30 * MINUTE_IN_SECONDS );
+			$response = rest_ensure_response( [ 'nonce' => $nonce ] );
+			$response->header( 'Cache-Control', 'no-store' );
+			return $response;
+		},
+		'permission_callback' => fn() => as_social_enabled( 'google' ),
+	] );
+
+	register_rest_route( 'amigosecreto/v1', '/auth/google', [
+		'methods'             => WP_REST_Server::CREATABLE,
+		'callback'            => 'as_rest_google_auth',
+		'permission_callback' => fn() => as_social_enabled( 'google' ),
+		'args'                => [
+			'credential' => [ 'type' => 'string', 'required' => true ],
+			'redirectTo' => [ 'type' => 'string' ],
+			'link'       => [ 'type' => 'boolean' ],
+		],
+	] );
+} );
+
+function as_social_rest_error( $code, $status = 400 ) {
+	return new WP_Error( 'as_social_' . $code, as_social_error_message( $code ), [ 'status' => $status ] );
+}
+
+/**
+ * Valida o ID token do Google e devolve o perfil normalizado.
+ *
+ * @return array|WP_Error
+ */
+function as_google_verify_credential( $credential, $nonce ) {
+	$response = wp_remote_get(
+		add_query_arg( 'id_token', rawurlencode( $credential ), 'https://oauth2.googleapis.com/tokeninfo' ),
+		[ 'timeout' => 15 ]
+	);
+	if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) >= 500 ) {
+		return new WP_Error( 'provider' );
+	}
+
+	$claims = json_decode( wp_remote_retrieve_body( $response ), true );
+	if ( ! is_array( $claims ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+		return new WP_Error( 'token' );
+	}
+
+	$valid = hash_equals( (string) as_social_setting( 'google_client_id' ), (string) ( $claims['aud'] ?? '' ) )
+		&& in_array( $claims['iss'] ?? '', [ 'accounts.google.com', 'https://accounts.google.com' ], true )
+		&& (int) ( $claims['exp'] ?? 0 ) > time()
+		&& ! empty( $claims['sub'] );
+	if ( ! $valid ) {
+		return new WP_Error( 'token' );
+	}
+
+	// O nonce do token precisa ser o mesmo entregue a este navegador (cookie).
+	if ( '' === $nonce || ! hash_equals( $nonce, (string) ( $claims['nonce'] ?? '' ) ) ) {
+		return new WP_Error( 'state' );
+	}
+
+	// O tokeninfo devolve email_verified como string "true".
+	$verified = in_array( $claims['email_verified'] ?? null, [ true, 'true' ], true );
+	if ( empty( $claims['email'] ) || ! $verified ) {
+		return new WP_Error( 'no_email' );
+	}
+
+	return [
+		'id'        => (string) $claims['sub'],
+		'email'     => (string) $claims['email'],
+		'name'      => (string) ( $claims['name'] ?? '' ),
+		// Foto padrão do Google vem em 96px; pede 400px.
+		'avatar'    => ! empty( $claims['picture'] ) ? preg_replace( '/=s\d+(-c)?$/', '=s400-c', $claims['picture'] ) : '',
+		'birthdate' => '',
+	];
+}
+
+/**
+ * POST /auth/google — entra (ou conecta a conta, com link=true e usuário logado).
+ */
+function as_rest_google_auth( WP_REST_Request $req ) {
+	$nonce   = sanitize_text_field( wp_unslash( $_COOKIE[ AS_GOOGLE_NONCE_COOKIE ] ?? '' ) );
+	$linking = $req['link'] && is_user_logged_in() ? get_current_user_id() : 0;
+
+	$profile = as_google_verify_credential( (string) $req['credential'], $nonce );
+	if ( is_wp_error( $profile ) ) {
+		return as_social_rest_error( $profile->get_error_code(), 'provider' === $profile->get_error_code() ? 502 : 400 );
+	}
+
+	$user = as_social_resolve_user( 'google', $profile, $linking );
+	if ( is_wp_error( $user ) ) {
+		// Mantém o nonce: a pessoa pode tentar de novo com outra conta sem recarregar a página.
+		return as_social_rest_error( $user->get_error_code(), 'linked_other' === $user->get_error_code() ? 409 : 403 );
+	}
+
+	// Nonce de uso único: consumido quando o login/vinculação dá certo.
+	as_social_cookie( AS_GOOGLE_NONCE_COOKIE, '', 0 );
+
+	as_social_fill_profile( $user->ID, $profile );
+
+	if ( $linking ) {
+		return as_me_payload( $user->ID );
+	}
+
+	wp_set_current_user( $user->ID );
+	wp_set_auth_cookie( $user->ID, true, is_ssl() );
+	do_action( 'wp_login', $user->user_login, $user );
+
+	$target = (string) ( $req['redirectTo'] ?? '' );
+	return [ 'redirect' => '' !== $target ? wp_validate_redirect( $target, as_url( 'painel' ) ) : as_url( 'painel' ) ];
+}
+
+/* =========================================================================
+ * Facebook (OAuth 2.0 com redirecionamento)
+ * ====================================================================== */
+
+function as_facebook_graph_url( $path ) {
+	$version = apply_filters( 'as_facebook_graph_version', 'v23.0' );
+	return 'https://graph.facebook.com/' . $version . '/' . ltrim( $path, '/' );
+}
+
 function as_social_start_url( $provider, $redirect_to = '' ) {
 	$url = as_url( 'auth', $provider );
 	return $redirect_to ? add_query_arg( 'redirect_to', rawurlencode( $redirect_to ), $url ) : $url;
@@ -64,18 +227,9 @@ function as_social_callback_url( $provider ) {
 	return as_url( 'auth', $provider, 'callback' );
 }
 
-function as_facebook_graph_url( $path ) {
-	$version = apply_filters( 'as_facebook_graph_version', 'v23.0' );
-	return 'https://graph.facebook.com/' . $version . '/' . ltrim( $path, '/' );
-}
-
-/* -------------------------------------------------------------------------
- * Rotas
- * ---------------------------------------------------------------------- */
-
 add_action( 'init', function () {
-	add_rewrite_rule( '^auth/(google|facebook)/?$', 'index.php?as_route=auth&as_provider=$matches[1]', 'top' );
-	add_rewrite_rule( '^auth/(google|facebook)/callback/?$', 'index.php?as_route=auth-callback&as_provider=$matches[1]', 'top' );
+	add_rewrite_rule( '^auth/(facebook)/?$', 'index.php?as_route=auth&as_provider=$matches[1]', 'top' );
+	add_rewrite_rule( '^auth/(facebook)/callback/?$', 'index.php?as_route=auth-callback&as_provider=$matches[1]', 'top' );
 } );
 
 add_filter( 'query_vars', function ( $vars ) {
@@ -93,11 +247,11 @@ add_action( 'template_redirect', function () {
 
 	nocache_headers();
 
-	if ( ! as_social_enabled( $provider ) ) {
+	if ( 'facebook' !== $provider || ! as_social_enabled( $provider ) ) {
 		as_social_fail( 'disabled' );
 	}
 
-	'auth' === $route ? as_social_begin( $provider ) : as_social_finish( $provider );
+	'auth' === $route ? as_facebook_begin() : as_facebook_finish();
 }, 0 );
 
 /**
@@ -108,133 +262,33 @@ function as_social_fail( $code, $linking = false ) {
 	exit;
 }
 
-/**
- * Mensagens dos códigos de erro, exibidas em /entrar/ e /perfil/.
- */
-function as_social_error_message( $code ) {
-	$messages = [
-		'disabled'     => __( 'Esse tipo de acesso não está disponível.', 'amigosecreto' ),
-		'state'        => __( 'A sessão de login expirou. Tente novamente.', 'amigosecreto' ),
-		'denied'       => __( 'O acesso foi cancelado.', 'amigosecreto' ),
-		'provider'     => __( 'Não conseguimos falar com o provedor de login. Tente novamente em instantes.', 'amigosecreto' ),
-		'no_email'     => __( 'Sua conta não compartilhou um e-mail verificado. Libere o acesso ao e-mail ou entre com e-mail e senha.', 'amigosecreto' ),
-		'no_account'   => __( 'Não encontramos uma conta com esse e-mail. Peça ao organizador do grupo para convidar você.', 'amigosecreto' ),
-		'linked_other' => __( 'Essa conta já está vinculada a outro usuário.', 'amigosecreto' ),
-		'create'       => __( 'Não foi possível criar sua conta. Tente novamente.', 'amigosecreto' ),
-	];
-	return $messages[ $code ] ?? '';
-}
-
-/* -------------------------------------------------------------------------
- * Início: redireciona para o provedor
- * ---------------------------------------------------------------------- */
-
-function as_social_begin( $provider ) {
+function as_facebook_begin() {
 	$state = wp_generate_password( 32, false );
 
 	set_transient( 'as_oauth_' . $state, [
-		'provider'    => $provider,
 		'redirect_to' => as_safe_redirect_target( '' ),
 		'link_user'   => get_current_user_id(),
 	], 10 * MINUTE_IN_SECONDS );
 
 	// O state também fica num cookie: o retorno só é aceito no mesmo navegador que iniciou o login.
-	setcookie( AS_OAUTH_COOKIE, $state, [
-		'expires'  => time() + 10 * MINUTE_IN_SECONDS,
-		'path'     => COOKIEPATH ?: '/',
-		'domain'   => COOKIE_DOMAIN ?: '',
-		'secure'   => is_ssl(),
-		'httponly' => true,
-		'samesite' => 'Lax',
-	] );
+	as_social_cookie( AS_OAUTH_COOKIE, $state, 10 * MINUTE_IN_SECONDS );
 
-	[ $client_id ] = as_social_credentials( $provider );
-	$redirect_uri  = as_social_callback_url( $provider );
-
-	if ( 'google' === $provider ) {
-		$scopes = [ 'openid', 'email', 'profile' ];
-		if ( as_social_setting( 'google_birthday' ) ) {
-			$scopes[] = 'https://www.googleapis.com/auth/user.birthday.read';
-		}
-		$url = add_query_arg( array_map( 'rawurlencode', [
-			'client_id'     => $client_id,
-			'redirect_uri'  => $redirect_uri,
-			'response_type' => 'code',
-			'scope'         => implode( ' ', $scopes ),
-			'state'         => $state,
-			'prompt'        => 'select_account',
-			// Resposta no fragmento (#…): o Google inclui iss=https://accounts.google.com no retorno, e
-			// firewalls como o ModSecurity bloqueiam parâmetros que começam com "https://". O fragmento
-			// não chega ao servidor; as_social_fragment_relay() repassa só code/state/error.
-			'response_mode' => 'fragment',
-		] ), 'https://accounts.google.com/o/oauth2/v2/auth' );
-	} else {
-		$scopes = [ 'email', 'public_profile' ];
-		if ( as_social_setting( 'facebook_birthday' ) ) {
-			$scopes[] = 'user_birthday';
-		}
-		$url = add_query_arg( array_map( 'rawurlencode', [
-			'client_id'     => $client_id,
-			'redirect_uri'  => $redirect_uri,
-			'response_type' => 'code',
-			'scope'         => implode( ',', $scopes ),
-			'state'         => $state,
-		] ), 'https://www.facebook.com/' . apply_filters( 'as_facebook_graph_version', 'v23.0' ) . '/dialog/oauth' );
+	$scopes = [ 'email', 'public_profile' ];
+	if ( as_social_setting( 'facebook_birthday' ) ) {
+		$scopes[] = 'user_birthday';
 	}
 
-	wp_redirect( $url ); // phpcs:ignore -- domínio externo do provedor.
+	wp_redirect( add_query_arg( array_map( 'rawurlencode', [ // phpcs:ignore -- domínio externo do provedor.
+		'client_id'     => as_social_setting( 'facebook_app_id' ),
+		'redirect_uri'  => as_social_callback_url( 'facebook' ),
+		'response_type' => 'code',
+		'scope'         => implode( ',', $scopes ),
+		'state'         => $state,
+	] ), 'https://www.facebook.com/' . apply_filters( 'as_facebook_graph_version', 'v23.0' ) . '/dialog/oauth' ) );
 	exit;
 }
 
-/* -------------------------------------------------------------------------
- * Retorno: troca o código pelo perfil e autentica
- * ---------------------------------------------------------------------- */
-
-/**
- * Página intermediária do retorno do Google (response_mode=fragment): lê code/state/error do
- * fragmento da URL e recarrega o callback com esses valores na query string.
- */
-function as_social_fragment_relay() {
-	status_header( 200 );
-	header( 'Content-Type: text/html; charset=utf-8' );
-	header( 'X-Robots-Tag: noindex' );
-	header( 'Referrer-Policy: no-referrer' );
-	$fallback = add_query_arg( 'as_error', 'state', as_url( 'entrar' ) );
-	?>
-<!doctype html>
-<html lang="pt-BR">
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="robots" content="noindex">
-	<title><?php esc_html_e( 'Concluindo login…', 'amigosecreto' ); ?></title>
-	<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;background:#f7f5fc;color:#1b1135}</style>
-</head>
-<body>
-	<p><?php esc_html_e( 'Concluindo login…', 'amigosecreto' ); ?></p>
-	<noscript><p><?php esc_html_e( 'Ative o JavaScript para entrar com o Google.', 'amigosecreto' ); ?></p></noscript>
-	<script>
-		(function () {
-			var hash = new URLSearchParams(location.hash.slice(1));
-			var query = new URLSearchParams();
-			['code', 'state', 'error'].forEach(function (key) {
-				if (hash.get(key)) query.set(key, hash.get(key));
-			});
-			location.replace(query.get('state') ? location.pathname + '?' + query.toString() : <?php echo wp_json_encode( $fallback ); ?>);
-		})();
-	</script>
-</body>
-</html>
-	<?php
-	exit;
-}
-
-function as_social_finish( $provider ) {
-	// Retorno do Google sem query string: os dados vieram no fragmento (#…).
-	if ( 'google' === $provider && empty( $_GET['state'] ) && empty( $_GET['code'] ) && empty( $_GET['error'] ) ) { // phpcs:ignore
-		as_social_fragment_relay();
-	}
-
+function as_facebook_finish() {
 	$state  = sanitize_text_field( wp_unslash( $_GET['state'] ?? '' ) ); // phpcs:ignore
 	$cookie = sanitize_text_field( wp_unslash( $_COOKIE[ AS_OAUTH_COOKIE ] ?? '' ) );
 	$data   = $state ? get_transient( 'as_oauth_' . $state ) : false;
@@ -242,9 +296,9 @@ function as_social_finish( $provider ) {
 	if ( $state ) {
 		delete_transient( 'as_oauth_' . $state );
 	}
-	setcookie( AS_OAUTH_COOKIE, '', time() - HOUR_IN_SECONDS, COOKIEPATH ?: '/', COOKIE_DOMAIN ?: '' );
+	as_social_cookie( AS_OAUTH_COOKIE, '', 0 );
 
-	if ( ! $data || ! hash_equals( $state, $cookie ) || $data['provider'] !== $provider ) {
+	if ( ! $data || ! hash_equals( $state, $cookie ) ) {
 		as_social_fail( 'state' );
 	}
 
@@ -254,12 +308,12 @@ function as_social_finish( $provider ) {
 		as_social_fail( 'denied', $linking );
 	}
 
-	$profile = as_social_fetch_profile( $provider, sanitize_text_field( wp_unslash( $_GET['code'] ) ) ); // phpcs:ignore
+	$profile = as_facebook_fetch_profile( sanitize_text_field( wp_unslash( $_GET['code'] ) ) ); // phpcs:ignore
 	if ( is_wp_error( $profile ) ) {
 		as_social_fail( $profile->get_error_code(), $linking );
 	}
 
-	$user = as_social_resolve_user( $provider, $profile, $linking );
+	$user = as_social_resolve_user( 'facebook', $profile, $linking );
 	if ( is_wp_error( $user ) ) {
 		as_social_fail( $user->get_error_code(), $linking );
 	}
@@ -267,7 +321,7 @@ function as_social_finish( $provider ) {
 	as_social_fill_profile( $user->ID, $profile );
 
 	if ( $linking ) {
-		wp_safe_redirect( add_query_arg( 'as_linked', $provider, as_url( 'perfil' ) ) );
+		wp_safe_redirect( add_query_arg( 'as_linked', 'facebook', as_url( 'perfil' ) ) );
 		exit;
 	}
 
@@ -280,65 +334,17 @@ function as_social_finish( $provider ) {
 }
 
 /**
- * Perfil normalizado: id, email, name, avatar, birthdate (Y-m-d ou '').
+ * Perfil normalizado do Facebook: id, email, name, avatar, birthdate (Y-m-d ou '').
  *
  * @return array|WP_Error
  */
-function as_social_fetch_profile( $provider, $code ) {
-	[ $client_id, $secret ] = as_social_credentials( $provider );
-	$redirect_uri           = as_social_callback_url( $provider );
+function as_facebook_fetch_profile( $code ) {
+	$secret = (string) as_social_setting( 'facebook_app_secret' );
 
-	if ( 'google' === $provider ) {
-		$token = as_social_json( wp_remote_post( 'https://oauth2.googleapis.com/token', [
-			'timeout' => 15,
-			'body'    => [
-				'code'          => $code,
-				'client_id'     => $client_id,
-				'client_secret' => $secret,
-				'redirect_uri'  => $redirect_uri,
-				'grant_type'    => 'authorization_code',
-			],
-		] ) );
-		if ( empty( $token['access_token'] ) ) {
-			return new WP_Error( 'provider' );
-		}
-		$auth = [ 'timeout' => 15, 'headers' => [ 'Authorization' => 'Bearer ' . $token['access_token'] ] ];
-
-		$info = as_social_json( wp_remote_get( 'https://openidconnect.googleapis.com/v1/userinfo', $auth ) );
-		if ( empty( $info['sub'] ) ) {
-			return new WP_Error( 'provider' );
-		}
-		if ( empty( $info['email'] ) || empty( $info['email_verified'] ) ) {
-			return new WP_Error( 'no_email' );
-		}
-
-		$birthdate = '';
-		if ( as_social_setting( 'google_birthday' ) ) {
-			$people = as_social_json( wp_remote_get( 'https://people.googleapis.com/v1/people/me?personFields=birthdays', $auth ) );
-			foreach ( (array) ( $people['birthdays'] ?? [] ) as $birthday ) {
-				$d = $birthday['date'] ?? [];
-				if ( ! empty( $d['year'] ) && ! empty( $d['month'] ) && ! empty( $d['day'] ) ) {
-					$birthdate = sprintf( '%04d-%02d-%02d', $d['year'], $d['month'], $d['day'] );
-					break;
-				}
-			}
-		}
-
-		return [
-			'id'        => (string) $info['sub'],
-			'email'     => (string) $info['email'],
-			'name'      => (string) ( $info['name'] ?? '' ),
-			// Foto padrão do Google vem em 96px; pede 400px.
-			'avatar'    => ! empty( $info['picture'] ) ? preg_replace( '/=s\d+(-c)?$/', '=s400-c', $info['picture'] ) : '',
-			'birthdate' => $birthdate,
-		];
-	}
-
-	// Facebook
 	$token = as_social_json( wp_remote_get( add_query_arg( array_map( 'rawurlencode', [
-		'client_id'     => $client_id,
+		'client_id'     => as_social_setting( 'facebook_app_id' ),
 		'client_secret' => $secret,
-		'redirect_uri'  => $redirect_uri,
+		'redirect_uri'  => as_social_callback_url( 'facebook' ),
 		'code'          => $code,
 	] ), as_facebook_graph_url( 'oauth/access_token' ) ), [ 'timeout' => 15 ] ) );
 	if ( empty( $token['access_token'] ) ) {
@@ -381,6 +387,10 @@ function as_social_json( $response ) {
 	$data = json_decode( wp_remote_retrieve_body( $response ), true );
 	return is_array( $data ) ? $data : [];
 }
+
+/* =========================================================================
+ * Contas vinculadas (comum aos dois provedores)
+ * ====================================================================== */
 
 function as_social_meta_key( $provider ) {
 	return 'as_' . $provider . '_id';
@@ -470,30 +480,35 @@ function as_social_unlink( $user_id, $provider ) {
 	delete_user_meta( (int) $user_id, as_social_meta_key( $provider ) );
 }
 
-/**
- * Botões "Continuar com Google/Facebook" (login e cadastro).
- */
+/* =========================================================================
+ * Botões (login e cadastro)
+ * ====================================================================== */
+
 function as_social_buttons( $redirect_to = '' ) {
 	$providers = as_social_enabled_providers();
 	if ( ! $providers ) {
 		return;
 	}
 
-	$logos = [
-		'google'   => '<svg class="size-5" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.63h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.8Z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.9l-3.88-3c-1.07.72-2.45 1.15-4.06 1.15-3.13 0-5.78-2.11-6.72-4.95H1.27v3.1A12 12 0 0 0 12 24Z"/><path fill="#FBBC05" d="M5.28 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.27a12 12 0 0 0 0 10.8l4-3.1Z"/><path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.59 1.8l3.44-3.44A11.97 11.97 0 0 0 1.27 6.6l4.01 3.1C6.22 6.86 8.87 4.75 12 4.75Z"/></svg>',
-		'facebook' => '<svg class="size-5" viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07Z"/></svg>',
-	];
-
 	echo '<div class="space-y-3">';
-	foreach ( $providers as $provider => $label ) {
+
+	if ( isset( $providers['google'] ) ) {
+		// Botão oficial renderizado pelo Google (src/js/lib/google.js); altura reservada evita "pulo".
 		printf(
-			'<a href="%s" class="btn btn-ghost w-full bg-white" data-no-swup>%s %s</a>',
-			esc_url( as_social_start_url( $provider, $redirect_to ) ),
-			$logos[ $provider ], // phpcs:ignore -- SVG fixo do tema.
-			/* translators: %s: Google ou Facebook */
-			esc_html( sprintf( __( 'Continuar com %s', 'amigosecreto' ), $label ) )
+			'<div class="google-signin" data-google-signin data-redirect="%s"></div>',
+			esc_attr( $redirect_to ?: as_url( 'painel' ) )
 		);
 	}
+
+	if ( isset( $providers['facebook'] ) ) {
+		printf(
+			'<a href="%s" class="btn btn-ghost w-full bg-white" data-no-swup>%s %s</a>',
+			esc_url( as_social_start_url( 'facebook', $redirect_to ) ),
+			'<svg class="size-5" viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07Z"/></svg>',
+			esc_html__( 'Continuar com Facebook', 'amigosecreto' )
+		);
+	}
+
 	echo '</div>';
 	echo '<div class="my-6 flex items-center gap-3 text-xs font-medium tracking-wide text-ink/40 uppercase"><span class="h-px flex-1 bg-ink/10"></span>' . esc_html__( 'ou', 'amigosecreto' ) . '<span class="h-px flex-1 bg-ink/10"></span></div>';
 }

@@ -41,18 +41,21 @@ No WordPress:
 
 ### Configurar Google
 
-1. Em [Google Cloud Console → Credenciais](https://console.cloud.google.com/apis/credentials), crie um
-   **ID do cliente OAuth** do tipo "Aplicativo da Web".
-2. Em "URIs de redirecionamento autorizados", adicione `https://SEU-SITE/auth/google/callback/`
-   (a URL exata aparece em Configurações → Login social).
-3. Copie Client ID e Client secret para Configurações → Login social.
-4. Data de nascimento (opcional): ative a **People API** no projeto e marque "Pedir data de nascimento".
-   O escopo `user.birthday.read` é sensível — em produção o app precisa da verificação do Google.
+O Google usa o botão oficial **Sign in with Google** (Google Identity Services): o Google entrega um
+token assinado ao JavaScript da página, que o envia à API do tema (`POST /wp-json/amigosecreto/v1/auth/google`);
+o servidor valida o token com o Google (`tokeninfo`: app, emissor, validade, e-mail verificado e um nonce
+de uso único guardado em cookie).
 
-> **Firewall da hospedagem (ModSecurity):** o Google acrescenta `iss=https://accounts.google.com` ao
-> retorno, e regras comuns de ModSecurity bloqueiam (erro 406 "Not Acceptable") parâmetros com URL de
-> outro domínio. Por isso o tema pede a resposta no fragmento da URL (`response_mode=fragment`) e uma
-> página intermediária repassa só `code`, `state` e `error` ao servidor. Não remova esse parâmetro.
+1. Em [Google Cloud Console → Credenciais](https://console.cloud.google.com/apis/credentials), use (ou crie)
+   um **ID do cliente OAuth** do tipo "Aplicativo da Web".
+2. Em **Origens JavaScript autorizadas**, adicione a origem do site, ex.: `https://rafabytes.com`
+   (aparece em Configurações → Login social). URIs de redirecionamento não são necessárias.
+3. Copie o **Client ID** para Configurações → Login social. O Client secret não é usado.
+
+> **Por que não o redirecionamento OAuth?** O retorno do Google sempre traz
+> `iss=https://accounts.google.com` (na URL ou via POST), e o ModSecurity da hospedagem bloqueia parâmetros
+> com URL de outro domínio (erro 406 "Not Acceptable"). Com o botão oficial, o token chega pelo JavaScript
+> e não há URL externa na requisição. O Google não fornece data de nascimento nesse modo.
 
 ### Configurar Facebook
 
@@ -69,7 +72,6 @@ As credenciais também podem vir do `wp-config.php` (têm prioridade sobre a tel
 
 ```php
 define( 'AS_GOOGLE_CLIENT_ID', '...' );
-define( 'AS_GOOGLE_CLIENT_SECRET', '...' );
 define( 'AS_FACEBOOK_APP_ID', '...' );
 define( 'AS_FACEBOOK_APP_SECRET', '...' );
 ```
@@ -111,7 +113,7 @@ wp-admin e veem a barra de administração.
 | `/`                 | Landing (logado → redireciona para `/painel/`)             |
 | `/entrar/`          | Login por e-mail e senha, Google ou Facebook               |
 | `/cadastro/`        | Cadastro de organizador (se o registro estiver liberado)   |
-| `/auth/{provedor}/` | Início/retorno do login com Google ou Facebook             |
+| `/auth/facebook/`   | Início/retorno do login com Facebook (Google usa o botão oficial) |
 | `/painel/`          | Meus grupos, atalho para a lista, criar grupo              |
 | `/grupos/{id}/`     | Grupo: participantes, sorteio, "quem eu tirei"             |
 | `/minha-lista/`     | Editor da minha lista de presentes                         |
@@ -189,6 +191,8 @@ de login) fazem navegação normal.
 | POST             | `/me`                                 | logado                     |
 | POST / DELETE    | `/me/avatar` (multipart, campo `avatar`) | logado                  |
 | DELETE           | `/me/social/{google|facebook}`       | logado                     |
+| GET              | `/auth/google/nonce`                  | público (Google ativo)     |
+| POST             | `/auth/google` (`credential`, `redirectTo?`, `link?`) | público; `link` exige login |
 
 "Gestor" = autor do grupo ou administrador.
 
