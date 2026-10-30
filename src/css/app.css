@@ -1,0 +1,233 @@
+@import "tailwindcss";
+
+/* Arquivos onde o Tailwind procura classes. */
+@source "../../*.php";
+@source "../../templates/**/*.php";
+@source "../../template-parts/**/*.php";
+@source "../../inc/**/*.php";
+@source "../js/**/*.{js,jsx}";
+
+@theme {
+	--font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+
+	--color-grape: #6a00f4;
+	--color-grape-dark: #5200c2;
+	--color-berry: #f43f5e;
+	--color-mint: #10b981;
+	--color-ink: #1b1135;
+	--color-snow: #f7f5fc;
+
+	--breakpoint-xs: 30rem;
+}
+
+@layer base {
+	:root {
+		color-scheme: light;
+	}
+
+	::selection {
+		background: color-mix(in oklab, var(--color-grape) 25%, transparent);
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--color-grape);
+		outline-offset: 2px;
+	}
+
+	button:not(:disabled),
+	[role="button"]:not(:disabled) {
+		cursor: pointer;
+	}
+}
+
+@layer components {
+	.container-site {
+		@apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+	}
+
+	.skip-link {
+		@apply sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-full focus:bg-grape focus:px-4 focus:py-2 focus:text-white;
+	}
+
+	.eyebrow {
+		@apply inline-flex items-center gap-1.5 text-sm font-semibold tracking-wide text-grape uppercase;
+	}
+
+	.card {
+		@apply rounded-3xl bg-white shadow-[0_1px_2px_rgb(27_17_53/0.04),0_8px_32px_-12px_rgb(27_17_53/0.12)] ring-1 ring-ink/5;
+	}
+
+	.card-hover {
+		@apply transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgb(27_17_53/0.04),0_16px_40px_-12px_rgb(106_0_244/0.25)];
+	}
+
+	/* Botões */
+	.btn {
+		@apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold whitespace-nowrap transition select-none disabled:pointer-events-none disabled:opacity-50;
+	}
+	.btn-lg {
+		@apply px-7 py-3.5 text-base;
+	}
+	.btn-sm {
+		@apply px-3.5 py-1.5 text-sm;
+	}
+	.btn-primary {
+		@apply bg-grape text-white shadow-lg shadow-grape/25 hover:bg-grape-dark active:scale-[0.98];
+	}
+	.btn-accent {
+		@apply bg-berry text-white shadow-lg shadow-berry/25 hover:brightness-95 active:scale-[0.98];
+	}
+	.btn-ghost {
+		@apply text-ink/80 ring-1 ring-ink/10 hover:bg-ink/5;
+	}
+	.btn-soft {
+		@apply bg-grape/10 text-grape hover:bg-grape/15;
+	}
+	.btn-danger {
+		@apply text-berry ring-1 ring-berry/30 hover:bg-berry/5;
+	}
+	.btn-icon {
+		@apply grid size-9 place-items-center rounded-full text-ink/50 transition hover:bg-ink/5 hover:text-ink disabled:pointer-events-none disabled:opacity-30;
+	}
+
+	.nav-link {
+		@apply inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-ink/60 transition hover:bg-ink/5 hover:text-ink;
+	}
+	.nav-link.is-active {
+		@apply bg-grape/10 text-grape;
+	}
+
+	.back-link {
+		@apply inline-flex items-center gap-1.5 text-sm font-medium text-ink/50 transition hover:text-grape;
+	}
+
+	/* Formulários */
+	.field {
+		@apply block space-y-1.5;
+	}
+	.field-label {
+		@apply block text-sm font-medium text-ink/80;
+	}
+	.field-hint {
+		@apply block text-xs text-ink/50;
+	}
+	.input {
+		@apply block w-full rounded-2xl border-0 bg-snow px-4 py-3 text-ink ring-1 ring-ink/10 transition outline-none placeholder:text-ink/35 focus:bg-white focus:ring-2 focus:ring-grape;
+	}
+	textarea.input {
+		@apply min-h-24 resize-y;
+	}
+	/* Botão "mostrar senha", sobreposto à direita do campo (input com pr-12). */
+	.password-toggle {
+		@apply absolute inset-y-0 right-0 grid w-12 place-items-center rounded-r-2xl text-ink/40 transition hover:text-ink focus-visible:text-grape;
+	}
+	.checkbox {
+		@apply size-4 rounded accent-grape;
+	}
+
+	/* Elementos */
+	.chip {
+		@apply inline-flex items-center gap-1 rounded-full bg-ink/5 px-2.5 py-1 text-xs font-semibold text-ink/70;
+	}
+	.chip-success {
+		@apply bg-mint/10 text-mint;
+	}
+	.chip-grape {
+		@apply bg-grape/10 text-grape;
+	}
+
+	.avatar {
+		@apply inline-grid shrink-0 place-items-center rounded-full bg-linear-to-br from-grape to-berry font-bold text-white;
+	}
+
+	.notice {
+		@apply rounded-2xl bg-grape/5 px-4 py-3 text-sm text-ink/80 ring-1 ring-grape/15;
+	}
+	.notice-error {
+		@apply bg-berry/5 text-berry ring-berry/20;
+	}
+	.notice-success {
+		@apply bg-mint/5 text-mint ring-mint/20;
+	}
+
+	.skeleton {
+		@apply animate-pulse rounded-3xl bg-ink/5;
+	}
+
+	.prose-site {
+		@apply space-y-4 leading-relaxed text-ink/80 [&_a]:text-grape [&_a]:underline [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:text-ink [&_h3]:text-xl [&_h3]:font-bold [&_h3]:text-ink [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6;
+	}
+}
+
+/* ---------- Swup: transição entre páginas ---------- */
+
+.transition-fade {
+	transition:
+		opacity 0.25s ease,
+		transform 0.25s ease;
+}
+
+html.is-animating .transition-fade {
+	opacity: 0;
+	transform: translateY(6px);
+}
+
+html.is-leaving .transition-fade {
+	transform: translateY(-6px);
+}
+
+.swup-progress-bar {
+	height: 3px;
+	background: linear-gradient(90deg, var(--color-grape), var(--color-berry));
+}
+
+/* ---------- Modal (<dialog>) ---------- */
+
+dialog.modal {
+	@apply m-auto w-[calc(100%-2rem)] max-w-lg rounded-3xl bg-white p-0 text-ink shadow-2xl;
+}
+
+dialog.modal::backdrop {
+	background: rgb(27 17 53 / 0.45);
+	backdrop-filter: blur(4px);
+}
+
+dialog.modal[open] {
+	animation: modal-in 0.2s ease-out;
+}
+
+@keyframes modal-in {
+	from {
+		opacity: 0;
+		transform: translateY(12px) scale(0.98);
+	}
+}
+
+/* ---------- Revelação do amigo secreto ---------- */
+
+@keyframes reveal-pop {
+	0% {
+		opacity: 0;
+		transform: scale(0.85) rotate(-3deg);
+	}
+	60% {
+		opacity: 1;
+		transform: scale(1.04) rotate(1deg);
+	}
+	100% {
+		transform: scale(1) rotate(0);
+	}
+}
+
+.animate-reveal {
+	animation: reveal-pop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.transition-fade,
+	.animate-reveal,
+	dialog.modal[open] {
+		transition: none;
+		animation: none;
+	}
+}

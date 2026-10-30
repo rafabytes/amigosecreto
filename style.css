@@ -1,0 +1,13 @@
+/*
+Theme Name: Amigo Secreto
+Theme URI: https://rafabytes.com
+Author: Rafa Bytes
+Description: Sistema de sorteio de amigo secreto com grupos, participantes e listas de presentes. Construído com WordPress, Parcel, TailwindCSS, Swup.js e React.
+Version: 1.0.0
+Requires at least: 6.4
+Requires PHP: 8.0
+Text Domain: amigosecreto
+License: GPL-2.0-or-later
+*/
+
+/* Os estilos do tema são compilados pelo Parcel em dist/app.css (veja src/css/app.css). */

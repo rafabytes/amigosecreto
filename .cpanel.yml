@@ -1,0 +1,11 @@
+---
+# Deploy pelo cPanel (Git™ Version Control → Gerenciar → Pull or Deploy → Deploy HEAD Commit).
+# Copia o tema para o WordPress de produção (rafabytes.com/amigosecreto), sem os arquivos de
+# desenvolvimento. O dist/ já vem compilado no repositório: o servidor não precisa de Node.
+deployment:
+  tasks:
+    # Ajuste THEMES se o WordPress estiver em outro caminho no servidor.
+    - export THEMES=$HOME/public_html/amigosecreto/wp-content/themes
+    - export DEPLOYPATH=$THEMES/amigosecreto-theme/
+    # Só copia se a pasta de temas existir, para nunca escrever num caminho errado.
+    - /bin/test -d "$THEMES" && /bin/mkdir -p "$DEPLOYPATH" && /usr/bin/rsync -a --delete --exclude=.git --exclude=.gitignore --exclude=.cpanel.yml --exclude=src/ --exclude=scripts/ --exclude=node_modules/ --exclude=package.json --exclude=package-lock.json --exclude=.postcssrc --exclude=README.md --exclude='*.zip' ./ "$DEPLOYPATH"
