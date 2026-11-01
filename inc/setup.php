@@ -58,6 +58,28 @@ add_action( 'wp_enqueue_scripts', function () {
 	] );
 } );
 
+/*
+ * Otimizadores de JS (LiteSpeed Cache etc.) não devem mexer no bundle nem nos dados do
+ * wp_localize_script: o app.js já vem minificado pelo Parcel, e o minificador do LiteSpeed
+ * corrompe o código do React (troca "for(...;;)" por "for(...;)"), quebrando todo o front.
+ * Também evita o "Delay JS", que só carregaria o botão do Google após interação do usuário.
+ */
+add_filter( 'script_loader_tag', function ( $tag, $handle ) {
+	if ( 'amigosecreto' !== $handle ) {
+		return $tag;
+	}
+
+	return preg_replace( '/<script(?![^>]*data-no-optimize)/', '<script data-no-optimize="1"', $tag );
+}, 10, 2 );
+
+add_filter( 'wp_inline_script_attributes', function ( $attributes ) {
+	if ( str_starts_with( (string) ( $attributes['id'] ?? '' ), 'amigosecreto-js-' ) ) {
+		$attributes['data-no-optimize'] = '1';
+	}
+
+	return $attributes;
+} );
+
 // Remove estilos de blocos que não usamos no front.
 add_action( 'wp_enqueue_scripts', function () {
 	wp_dequeue_style( 'wp-block-library' );
