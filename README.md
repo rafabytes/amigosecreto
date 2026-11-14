@@ -223,8 +223,13 @@ de login) fazem navegação normal.
 ## Deploy (cPanel)
 
 O repositório contém só o tema. O deploy usa o **Git™ Version Control** do cPanel e o arquivo
-[.cpanel.yml](.cpanel.yml), que copia o tema para
-`~/public_html/amigosecreto/wp-content/themes/amigosecreto-theme/` sem os arquivos de desenvolvimento.
+[.cpanel.yml](.cpanel.yml), que copia o tema (sem os arquivos de desenvolvimento) para a primeira destas
+pastas de temas que existir no servidor:
+
+- `~/amigosecreto.appmaster.com.br/wp-content/themes/` (amigosecreto.appmaster.com.br)
+- `~/public_html/amigosecreto/wp-content/themes/` (rafabytes.com/amigosecreto)
+
+Se nenhuma existir, o deploy falha sem copiar nada. Para outro servidor, acrescente o caminho na lista.
 
 1. **Antes de commitar**, rode `npm run build`: o `dist/` vai no repositório porque o servidor não tem Node.
 2. `git push` para o GitHub.
