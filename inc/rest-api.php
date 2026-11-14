@@ -43,6 +43,7 @@ add_action( 'rest_api_init', function () {
 		[
 			'methods'             => WP_REST_Server::DELETABLE,
 			'callback'            => function ( $req ) {
+				as_log_group( 'group_delete', (int) $req['id'] );
 				wp_trash_post( (int) $req['id'] );
 				return [ 'deleted' => true, 'redirect' => as_url( 'painel' ) ];
 			},
@@ -70,7 +71,10 @@ add_action( 'rest_api_init', function () {
 			if ( as_group_is_drawn( $group_id ) ) {
 				return new WP_Error( 'as_already_drawn', __( 'O sorteio já foi feito. Refaça o sorteio para alterar participantes.', 'amigosecreto' ), [ 'status' => 409 ] );
 			}
-			as_group_remove_participant( $group_id, (int) $req['user'] );
+			if ( as_group_has_participant( $group_id, (int) $req['user'] ) ) {
+				as_group_remove_participant( $group_id, (int) $req['user'] );
+				as_log_participant_change( $group_id, (int) $req['user'], false );
+			}
 			return as_group_payload( $group_id );
 		},
 		'permission_callback' => 'as_rest_can_manage_group',
@@ -80,15 +84,23 @@ add_action( 'rest_api_init', function () {
 		[
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => function ( $req ) {
-				$result = as_run_draw( (int) $req['id'], (bool) ( $req['notify'] ?? true ) );
-				return is_wp_error( $result ) ? $result : as_group_payload( (int) $req['id'] );
+				$notify = (bool) ( $req['notify'] ?? true );
+				$result = as_run_draw( (int) $req['id'], $notify );
+				if ( is_wp_error( $result ) ) {
+					return $result;
+				}
+				as_log_group( 'draw', (int) $req['id'], [ 'count' => count( as_group_participants( (int) $req['id'] ) ), 'notify' => $notify ? 1 : 0 ] );
+				return as_group_payload( (int) $req['id'] );
 			},
 			'permission_callback' => 'as_rest_can_manage_group',
 		],
 		[
 			'methods'             => WP_REST_Server::DELETABLE,
 			'callback'            => function ( $req ) {
-				as_reset_draw( (int) $req['id'] );
+				if ( as_group_is_drawn( (int) $req['id'] ) ) {
+					as_reset_draw( (int) $req['id'] );
+					as_log_group( 'draw_reset', (int) $req['id'] );
+				}
 				return as_group_payload( (int) $req['id'] );
 			},
 			'permission_callback' => 'as_rest_can_manage_group',
@@ -103,7 +115,8 @@ add_action( 'rest_api_init', function () {
 			if ( ! $match ) {
 				return new WP_Error( 'as_no_match', __( 'O sorteio ainda não foi feito.', 'amigosecreto' ), [ 'status' => 404 ] );
 			}
-			as_mark_revealed( $group_id, get_current_user_id() );
+			$first = as_mark_revealed( $group_id, get_current_user_id() );
+			as_log_group( 'reveal', $group_id, $first ? [] : [ 'again' => 1 ] );
 			return [ 'match' => as_user_payload( $match ) ];
 		},
 		'permission_callback' => fn( $req ) => as_group_has_participant( (int) $req['id'], get_current_user_id() ),
@@ -121,7 +134,11 @@ add_action( 'rest_api_init', function () {
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => function ( $req ) {
 				$gift = as_save_gift( get_current_user_id(), $req->get_params() );
-				return is_wp_error( $gift ) ? $gift : as_gift_payload( $gift );
+				if ( is_wp_error( $gift ) ) {
+					return $gift;
+				}
+				as_log_gift( 'gift_add', $gift );
+				return as_gift_payload( $gift );
 			},
 			'permission_callback' => 'is_user_logged_in',
 		],
@@ -148,13 +165,18 @@ add_action( 'rest_api_init', function () {
 			'methods'             => WP_REST_Server::EDITABLE,
 			'callback'            => function ( $req ) {
 				$gift = as_save_gift( get_current_user_id(), $req->get_params(), (int) $req['id'] );
-				return is_wp_error( $gift ) ? $gift : as_gift_payload( $gift );
+				if ( is_wp_error( $gift ) ) {
+					return $gift;
+				}
+				as_log_gift( 'gift_update', $gift );
+				return as_gift_payload( $gift );
 			},
 			'permission_callback' => 'as_rest_owns_gift',
 		],
 		[
 			'methods'             => WP_REST_Server::DELETABLE,
 			'callback'            => function ( $req ) {
+				as_log_gift( 'gift_delete', get_post( (int) $req['id'] ) );
 				wp_delete_post( (int) $req['id'], true );
 				return [ 'deleted' => true ];
 			},
@@ -182,14 +204,21 @@ add_action( 'rest_api_init', function () {
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => function () {
 				$url = as_upload_avatar( get_current_user_id(), 'avatar' );
-				return is_wp_error( $url ) ? $url : as_me_payload( get_current_user_id() );
+				if ( is_wp_error( $url ) ) {
+					return $url;
+				}
+				as_log_activity( get_current_user_id(), 'avatar_update' );
+				return as_me_payload( get_current_user_id() );
 			},
 			'permission_callback' => 'is_user_logged_in',
 		],
 		[
 			'methods'             => WP_REST_Server::DELETABLE,
 			'callback'            => function () {
-				as_delete_avatar( get_current_user_id() );
+				if ( as_has_avatar( get_current_user_id() ) ) {
+					as_delete_avatar( get_current_user_id() );
+					as_log_activity( get_current_user_id(), 'avatar_remove' );
+				}
 				return as_me_payload( get_current_user_id() );
 			},
 			'permission_callback' => 'is_user_logged_in',
@@ -200,7 +229,10 @@ add_action( 'rest_api_init', function () {
 		'methods'             => WP_REST_Server::DELETABLE,
 		'callback'            => function ( $req ) {
 			// Sem risco de ficar trancado fora: "Esqueci a senha" sempre funciona pelo e-mail.
-			as_social_unlink( get_current_user_id(), $req['provider'] );
+			if ( as_social_linked( get_current_user_id() )[ $req['provider'] ] ) {
+				as_social_unlink( get_current_user_id(), $req['provider'] );
+				as_log_activity( get_current_user_id(), 'social_unlink', [ 'detail' => [ 'provider' => $req['provider'] ] ] );
+			}
 			return as_me_payload( get_current_user_id() );
 		},
 		'permission_callback' => 'is_user_logged_in',
@@ -241,6 +273,8 @@ function as_rest_create_group( WP_REST_Request $req ) {
 		as_group_add_participant( $group_id, get_current_user_id() );
 	}
 
+	as_log_group( 'group_create', $group_id );
+
 	$response = rest_ensure_response( as_group_payload( $group_id ) );
 	$response->set_status( 201 );
 	return $response;
@@ -249,6 +283,7 @@ function as_rest_create_group( WP_REST_Request $req ) {
 function as_rest_update_group( WP_REST_Request $req ) {
 	$group_id = (int) $req['id'];
 	$postarr  = [ 'ID' => $group_id ];
+	$before   = as_group_payload( $group_id );
 
 	if ( isset( $req['title'] ) ) {
 		$title = sanitize_text_field( $req['title'] );
@@ -269,12 +304,29 @@ function as_rest_update_group( WP_REST_Request $req ) {
 
 	// Organizador pode entrar/sair do próprio sorteio enquanto ele não acontece.
 	if ( isset( $req['joinAsParticipant'] ) && ! as_group_is_drawn( $group_id ) ) {
-		$req['joinAsParticipant']
-			? as_group_add_participant( $group_id, get_current_user_id() )
-			: as_group_remove_participant( $group_id, get_current_user_id() );
+		$join = (bool) $req['joinAsParticipant'];
+		if ( $join !== as_group_has_participant( $group_id, get_current_user_id() ) ) {
+			$join
+				? as_group_add_participant( $group_id, get_current_user_id() )
+				: as_group_remove_participant( $group_id, get_current_user_id() );
+			as_log_participant_change( $group_id, get_current_user_id(), $join );
+		}
 	}
 
-	return as_group_payload( $group_id );
+	$after   = as_group_payload( $group_id );
+	$labels  = [
+		'title'       => __( 'nome', 'amigosecreto' ),
+		'description' => __( 'descrição', 'amigosecreto' ),
+		'eventDate'   => __( 'data', 'amigosecreto' ),
+		'location'    => __( 'local', 'amigosecreto' ),
+		'budget'      => __( 'valor', 'amigosecreto' ),
+	];
+	$changed = array_values( array_filter( $labels, fn( $key ) => $before[ $key ] !== $after[ $key ], ARRAY_FILTER_USE_KEY ) );
+	if ( $changed ) {
+		as_log_group( 'group_update', $group_id, [ 'fields' => $changed ] );
+	}
+
+	return $after;
 }
 
 function as_rest_update_me( WP_REST_Request $req ) {
@@ -328,8 +380,19 @@ function as_rest_update_me( WP_REST_Request $req ) {
 	if ( isset( $userarr['user_pass'] ) ) {
 		as_set_needs_password( $user->ID, false );
 	}
+	$old_birthdate = as_get_birthdate( $user->ID );
 	if ( isset( $req['birthdate'] ) ) {
 		as_set_birthdate( $user->ID, $req['birthdate'] );
+	}
+
+	$changed = array_keys( array_filter( [
+		__( 'nome', 'amigosecreto' )               => isset( $userarr['display_name'] ) && $userarr['display_name'] !== $user->display_name,
+		__( 'e-mail', 'amigosecreto' )             => isset( $userarr['user_email'] ),
+		__( 'senha', 'amigosecreto' )              => isset( $userarr['user_pass'] ),
+		__( 'data de nascimento', 'amigosecreto' ) => as_get_birthdate( $user->ID ) !== $old_birthdate,
+	] ) );
+	if ( $changed ) {
+		as_log_activity( $user->ID, 'profile_update', [ 'detail' => [ 'fields' => $changed ] ] );
 	}
 
 	return as_me_payload( $user->ID );

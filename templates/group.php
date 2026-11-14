@@ -10,7 +10,7 @@ get_header();
 ?>
 
 <div class="container-site py-10 sm:py-14">
-	<a href="<?php echo esc_url( as_url( 'painel' ) ); ?>" class="back-link"><?php echo as_icon( 'back', 'size-4' ); // phpcs:ignore ?> <?php esc_html_e( 'Meus grupos', 'amigosecreto' ); ?></a>
+	<a href="<?php echo esc_url( as_url( 'painel' ) ); ?>" class="back-link"><?php echo as_icon( 'back', 'size-4' ); // phpcs:ignore ?> <?php esc_html_e( 'Sorteios', 'amigosecreto' ); ?></a>
 
 	<?php
 	as_island(

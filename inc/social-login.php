@@ -423,7 +423,10 @@ function as_social_resolve_user( $provider, array $profile, $link_user_id = 0 ) 
 		if ( $linked && $linked->ID !== $link_user_id ) {
 			return new WP_Error( 'linked_other' );
 		}
-		update_user_meta( $link_user_id, $key, $profile['id'] );
+		if ( ! $linked ) {
+			update_user_meta( $link_user_id, $key, $profile['id'] );
+			as_log_activity( $link_user_id, 'social_link', [ 'detail' => [ 'provider' => $provider ] ] );
+		}
 		return get_userdata( $link_user_id );
 	}
 
@@ -435,6 +438,7 @@ function as_social_resolve_user( $provider, array $profile, $link_user_id = 0 ) 
 	$user = get_user_by( 'email', $profile['email'] );
 	if ( $user ) {
 		update_user_meta( $user->ID, $key, $profile['id'] );
+		as_log_activity( $user->ID, 'social_link', [ 'detail' => [ 'provider' => $provider, 'auto' => 1 ] ] );
 		return $user;
 	}
 
@@ -442,7 +446,7 @@ function as_social_resolve_user( $provider, array $profile, $link_user_id = 0 ) 
 		return new WP_Error( 'no_account' );
 	}
 
-	$user_id = as_create_user( $profile['email'], $profile['name'], 'organizador' );
+	$user_id = as_create_user( $profile['email'], $profile['name'], 'organizador', $provider );
 	if ( is_wp_error( $user_id ) ) {
 		return new WP_Error( 'create' );
 	}

@@ -105,7 +105,7 @@ function as_handle_register() {
 		return;
 	}
 
-	$user_id = as_create_user( $email, $name, 'organizador' );
+	$user_id = as_create_user( $email, $name, 'organizador', 'form' );
 	if ( is_wp_error( $user_id ) ) {
 		as_form_errors( [ $user_id->get_error_message() ] );
 		return;

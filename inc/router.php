@@ -9,11 +9,16 @@
  *   /perfil/           nome, e-mail e senha
  *   /entrar/           login
  *   /cadastro/         cadastro de organizadores (se "Qualquer pessoa pode se registrar" estiver ativo)
+ *   /usuarios/         lista de usuários (só administradores)
+ *   /usuarios/{id}/    perfil e histórico de atividade do usuário, para auditoria (só administradores)
+ *
+ * Chaves de cada rota: template, title, auth (exige login), id (true = exige /{id}/, 'optional' = aceita
+ * com e sem), item_template (template quando há ID), admin (só administradores; os demais recebem 404).
  */
 
 defined( 'ABSPATH' ) || exit;
 
-const AS_ROUTES_VERSION = '2';
+const AS_ROUTES_VERSION = '3';
 
 function as_routes() {
 	return [
@@ -24,6 +29,7 @@ function as_routes() {
 		'perfil'      => [ 'template' => 'profile', 'title' => __( 'Meu perfil', 'amigosecreto' ), 'auth' => true ],
 		'entrar'      => [ 'template' => 'login', 'title' => __( 'Entrar', 'amigosecreto' ), 'auth' => false ],
 		'cadastro'    => [ 'template' => 'register', 'title' => __( 'Criar conta', 'amigosecreto' ), 'auth' => false ],
+		'usuarios'    => [ 'template' => 'users', 'item_template' => 'user', 'title' => __( 'Usuários', 'amigosecreto' ), 'auth' => true, 'id' => 'optional', 'admin' => true ],
 	];
 }
 
@@ -31,7 +37,8 @@ add_action( 'init', function () {
 	foreach ( as_routes() as $slug => $route ) {
 		if ( ! empty( $route['id'] ) ) {
 			add_rewrite_rule( '^' . $slug . '/(\d+)/?$', 'index.php?as_route=' . $slug . '&as_id=$matches[1]', 'top' );
-		} else {
+		}
+		if ( empty( $route['id'] ) || 'optional' === $route['id'] ) {
 			add_rewrite_rule( '^' . $slug . '/?$', 'index.php?as_route=' . $slug, 'top' );
 		}
 	}
@@ -97,6 +104,11 @@ add_action( 'template_redirect', function () {
 		exit;
 	}
 
+	if ( ! empty( $config['admin'] ) && ! as_user_is_admin() ) {
+		as_set_404();
+		return;
+	}
+
 	if ( 'cadastro' === $route && ! get_option( 'users_can_register' ) ) {
 		as_set_404();
 		return;
@@ -123,6 +135,15 @@ add_action( 'template_redirect', function () {
 		$title = sprintf( __( 'Lista de %s', 'amigosecreto' ), $owner->display_name );
 	}
 
+	if ( 'usuarios' === $route && $id ) {
+		$person = get_userdata( $id );
+		if ( ! $person ) {
+			as_set_404();
+			return;
+		}
+		$title = $person->display_name;
+	}
+
 	as_set_title( $title );
 	status_header( 200 );
 	nocache_headers();
@@ -140,7 +161,9 @@ add_filter( 'template_include', function ( $template ) {
 	if ( ! $route || is_404() ) {
 		return $template;
 	}
-	$file = locate_template( 'templates/' . as_routes()[ $route ]['template'] . '.php' );
+	$config = as_routes()[ $route ];
+	$name   = get_query_var( 'as_id' ) && ! empty( $config['item_template'] ) ? $config['item_template'] : $config['template'];
+	$file   = locate_template( 'templates/' . $name . '.php' );
 	return $file ?: $template;
 }, 20 );
 
@@ -154,4 +177,14 @@ add_filter( 'document_title_parts', function ( $parts ) {
 // Evita que o WordPress "adivinhe" e redirecione /grupos/12 para algum post.
 add_filter( 'redirect_canonical', function ( $redirect ) {
 	return as_current_route() ? false : $redirect;
+} );
+
+// Páginas de administração nunca vão para buscadores.
+add_filter( 'wp_robots', function ( $robots ) {
+	$route = as_current_route();
+	if ( $route && ! empty( as_routes()[ $route ]['admin'] ) ) {
+		$robots['noindex']  = true;
+		$robots['nofollow'] = true;
+	}
+	return $robots;
 } );

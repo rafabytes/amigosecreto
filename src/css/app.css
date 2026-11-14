@@ -139,6 +139,61 @@
 	.chip-grape {
 		@apply bg-grape/10 text-grape;
 	}
+	.chip-berry {
+		@apply bg-berry/10 text-berry;
+	}
+
+	/* Abas de filtro (links com aria-current="page" na ativa) */
+	.tabs {
+		@apply flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-ink/5 p-1;
+		scrollbar-width: none;
+	}
+	.tabs a {
+		@apply inline-flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium whitespace-nowrap text-ink/60 transition hover:text-ink;
+	}
+	.tabs a[aria-current="page"] {
+		@apply bg-white text-ink shadow-sm;
+	}
+	.tabs-count {
+		@apply rounded-full bg-ink/5 px-1.5 text-xs font-semibold text-ink/50 tabular-nums;
+	}
+
+	/* Linha do tempo do histórico de atividade (templates/user.php) */
+	.activity {
+		@apply relative grid gap-1;
+	}
+	.activity::before {
+		content: "";
+		@apply absolute top-4 bottom-4 left-17 w-px bg-ink/10;
+	}
+	.activity-item {
+		@apply relative grid grid-cols-[3rem_2rem_1fr] items-start gap-3 rounded-2xl px-1 py-2.5;
+	}
+	.activity-time {
+		@apply pt-1.5 text-right text-xs text-ink/40 tabular-nums;
+	}
+	.activity-icon {
+		@apply relative grid size-8 place-items-center rounded-full bg-white text-ink/60 ring-1 ring-ink/10;
+	}
+	.activity-text {
+		@apply pt-1 text-ink/80;
+	}
+	.activity-text a {
+		@apply text-ink underline decoration-ink/20 underline-offset-4 transition hover:text-grape hover:decoration-grape;
+	}
+	.activity-meta {
+		@apply mt-1 text-xs text-ink/40;
+	}
+	.activity-item.is-muted .activity-text,
+	.activity-item.is-muted .activity-text a {
+		@apply text-ink/50;
+	}
+	.activity-item.is-muted .activity-icon {
+		@apply text-ink/40;
+	}
+	.activity-item.is-alert .activity-icon {
+		@apply bg-berry/10 text-berry ring-berry/30;
+	}
 
 	.avatar {
 		@apply inline-grid shrink-0 place-items-center rounded-full bg-linear-to-br from-grape to-berry font-bold text-white;

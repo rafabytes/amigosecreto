@@ -10,6 +10,7 @@ import SwupHeadPlugin from '@swup/head-plugin';
 import SwupProgressPlugin from '@swup/progress-plugin';
 import { mountIslands, unmountIslands } from './islands';
 import { mountGoogleButtons } from './lib/google';
+import { trackView } from './lib/activity';
 
 const swup = new Swup({
 	containers: ['#site-header', '#swup'],
@@ -26,10 +27,12 @@ swup.hooks.before('content:replace', () => unmountIslands());
 swup.hooks.on('page:view', () => {
 	mountIslands();
 	mountGoogleButtons();
+	trackView();
 });
 
 mountIslands();
 mountGoogleButtons();
+trackView();
 
 /*
  * Botão "mostrar senha" dos formulários PHP (as_password_toggle()). Delegado no document para

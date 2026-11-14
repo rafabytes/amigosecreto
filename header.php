@@ -9,6 +9,9 @@ $as_nav   = is_user_logged_in() ? [
 	'minha-lista' => [ __( 'Minha lista', 'amigosecreto' ), 'gift' ],
 	'perfil'      => [ __( 'Perfil', 'amigosecreto' ), 'user' ],
 ] : [];
+if ( as_user_is_admin() ) {
+	$as_nav['usuarios'] = [ __( 'Usuários', 'amigosecreto' ), 'shield-check' ];
+}
 ?>
 <!doctype html>
 <html <?php language_attributes(); ?>>

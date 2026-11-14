@@ -203,9 +203,11 @@ function as_reset_draw( $group_id ) {
  */
 function as_mark_revealed( $group_id, $user_id ) {
 	$revealed = array_map( 'intval', get_post_meta( $group_id, '_as_revealed', false ) );
-	if ( ! in_array( (int) $user_id, $revealed, true ) ) {
-		add_post_meta( $group_id, '_as_revealed', (int) $user_id );
+	if ( in_array( (int) $user_id, $revealed, true ) ) {
+		return false;
 	}
+	add_post_meta( $group_id, '_as_revealed', (int) $user_id );
+	return true;
 }
 
 /* -------------------------------------------------------------------------
@@ -233,7 +235,7 @@ function as_invite_participant( $group_id, $email, $name = '' ) {
 	$user = get_user_by( 'email', $email );
 
 	if ( ! $user ) {
-		$user_id = as_create_user( $email, $name, 'participante' );
+		$user_id = as_create_user( $email, $name, 'participante', 'invite' );
 		if ( is_wp_error( $user_id ) ) {
 			return $user_id;
 		}
@@ -246,6 +248,7 @@ function as_invite_participant( $group_id, $email, $name = '' ) {
 
 	as_group_add_participant( $group_id, $user->ID );
 	as_email_invite( $group_id, $user );
+	as_log_participant_change( $group_id, $user, true );
 
 	return $user;
 }
@@ -296,6 +299,79 @@ function as_group_payload( $group, $viewer_id = 0 ) {
 		'myMatch'       => $match_id ? as_user_payload( $match_id ) : null,
 		'minParticipants' => AS_MIN_PARTICIPANTS,
 	];
+}
+
+/**
+ * Payload do grupo + o resumo exibido na lista de sorteios do painel.
+ */
+function as_group_summary( $group, $viewer_id = 0 ) {
+	$viewer_id = $viewer_id ?: get_current_user_id();
+	$data      = as_group_payload( $group, $viewer_id );
+	$revealed  = array_map( 'intval', get_post_meta( $data['id'], '_as_revealed', false ) );
+	$days      = null;
+
+	if ( $data['eventDate'] ) {
+		$today = new DateTimeImmutable( wp_date( 'Y-m-d' ) );
+		$event = DateTimeImmutable::createFromFormat( '!Y-m-d', $data['eventDate'] );
+		$days  = $event ? (int) $today->diff( $event )->format( '%r%a' ) : null;
+	}
+
+	if ( $data['organizer'] && (int) $data['organizer']['id'] === (int) $viewer_id ) {
+		$role = 'organizer';
+	} elseif ( $data['isParticipant'] ) {
+		$role = 'participant';
+	} else {
+		$role = 'admin';
+	}
+
+	$data['role']          = $role;
+	$data['daysUntil']     = $days;
+	$data['isPast']        = null !== $days && $days < 0;
+	$data['count']         = count( $data['participants'] );
+	$data['revealedCount'] = count( array_intersect( $revealed, as_group_participants( $data['id'] ) ) );
+	$data['iRevealed']     = in_array( (int) $viewer_id, $revealed, true );
+	$data['excerpt']       = wp_trim_words( $data['description'], 26, '…' );
+
+	return $data;
+}
+
+/**
+ * Ordena resumos: próximas trocas primeiro (data mais próxima), depois os sem data (mais novos
+ * primeiro) e por fim os encerrados (mais recentes primeiro).
+ *
+ * @param array[] $summaries Resultados de as_group_summary().
+ */
+function as_sort_group_summaries( array $summaries ) {
+	usort( $summaries, function ( $a, $b ) {
+		$rank = fn( $g ) => $g['isPast'] ? 2 : ( null === $g['daysUntil'] ? 1 : 0 );
+		if ( $rank( $a ) !== $rank( $b ) ) {
+			return $rank( $a ) <=> $rank( $b );
+		}
+		if ( 0 === $rank( $a ) ) {
+			return $a['daysUntil'] <=> $b['daysUntil'];
+		}
+		if ( 2 === $rank( $a ) ) {
+			return $b['daysUntil'] <=> $a['daysUntil'];
+		}
+		return $b['id'] <=> $a['id'];
+	} );
+	return $summaries;
+}
+
+/**
+ * Todos os sorteios do site (visão do administrador).
+ *
+ * @return WP_Post[]
+ */
+function as_all_groups() {
+	return get_posts( [
+		'post_type'      => 'as_grupo',
+		'post_status'    => 'publish',
+		'posts_per_page' => -1,
+		'orderby'        => 'date',
+		'order'          => 'DESC',
+		'no_found_rows'  => true,
+	] );
 }
 
 function as_save_group_fields( $group_id, array $data ) {

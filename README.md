@@ -100,11 +100,31 @@ Personalizar → Identidade do site, valem os ícones do tema (site, login, admi
 | Papel          | Pode                                                                                       |
 |----------------|--------------------------------------------------------------------------------------------|
 | `administrator` | Tudo, inclusive wp-admin. Vê resultados do sorteio no metabox do grupo.                   |
-| `organizador`   | Criar grupos, convidar/remover participantes, sortear/desfazer. Pode participar do próprio sorteio e ter lista. |
-| `participante`  | Criado automaticamente quando o organizador cadastra o e-mail. Mantém a própria lista e vê as listas de quem está nos mesmos grupos. |
+| `organizador`   | Conta criada pelo cadastro ou login social.                                                |
+| `participante`  | Conta criada automaticamente quando alguém adiciona o e-mail a um sorteio.                  |
 
-Para promover alguém a organizador, edite o usuário no wp-admin. Só administradores acessam o
-wp-admin e veem a barra de administração.
+Organizador e participante podem as mesmas coisas: participar de sorteios, manter a lista de presentes
+(e ver a de quem está nos mesmos sorteios) e **criar os próprios sorteios**. Quem cria um sorteio é o
+organizador dele: convida/remove participantes, sorteia/desfaz e acompanha quem já viu o resultado. O
+papel só registra como a conta surgiu. Só administradores acessam o wp-admin e veem a barra de
+administração.
+
+## Auditoria (administradores)
+
+`/usuarios/` lista todas as contas (busca, filtro por papel, sorteios, itens na lista, último acesso) e
+`/usuarios/{id}/` mostra o perfil com os sorteios da pessoa e a **linha do tempo de atividade**, agrupada
+por dia e filtrável (sorteios, lista de presentes, acesso e segurança, navegação), com IP e navegador.
+Também há o atalho "Atividade" em wp-admin → Usuários. Para os outros usuários essas páginas são 404.
+
+- Registrado (`inc/activity.php`, tabela `wp_as_activity`): cadastro (formulário, convite, Google,
+  Facebook), logins e logouts, senha errada, pedido/redefinição de senha, alterações no perfil e na foto,
+  contas sociais conectadas/desconectadas, sorteios criados/editados/excluídos, participantes
+  adicionados/removidos (no histórico de quem fez e de quem foi afetado), sorteio feito/desfeito,
+  resultado aberto, itens da lista e páginas vistas (enviadas pelo navegador, `src/js/lib/activity.js`).
+- **Nunca** registra quem tirou quem — só que a pessoa abriu o resultado.
+- Na primeira execução a tabela é criada e preenchida com o que já existia (cadastros, sorteios,
+  sorteios realizados e presentes), marcado como "registro anterior ao histórico".
+- Registros com mais de 365 dias são apagados diariamente (`AS_ACTIVITY_RETENTION_DAYS`).
 
 ## Rotas
 
@@ -114,11 +134,13 @@ wp-admin e veem a barra de administração.
 | `/entrar/`          | Login por e-mail e senha, Google ou Facebook               |
 | `/cadastro/`        | Cadastro de organizador (se o registro estiver liberado)   |
 | `/auth/facebook/`   | Início/retorno do login com Facebook (Google usa o botão oficial) |
-| `/painel/`          | Meus grupos, atalho para a lista, criar grupo              |
+| `/painel/`          | Início logado: sorteios com resumo (filtros; admin vê todos com `?ver=site`), atalho para a lista, criar sorteio |
 | `/grupos/{id}/`     | Grupo: participantes, sorteio, "quem eu tirei"             |
 | `/minha-lista/`     | Editor da minha lista de presentes                         |
 | `/lista/{user_id}/` | Lista de outra pessoa (só quem compartilha grupo)          |
 | `/perfil/`          | Foto, nome, e-mail, aniversário, senha e contas sociais    |
+| `/usuarios/`        | Lista de usuários (só administradores)                     |
+| `/usuarios/{id}/`   | Perfil + histórico de atividade (só administradores)       |
 
 As rotas são regras de rewrite do tema (`inc/router.php`) — não é preciso criar páginas.
 
@@ -150,11 +172,12 @@ inc/
   social-settings.php  Configurações → Login social
   rest-api.php         API REST amigosecreto/v1
   admin.php            colunas e metabox no wp-admin
+  activity.php         histórico de atividade para auditoria (tabela, eventos, retenção)
   icons.php            ícones SVG da interface (também enviados ao JS) e botão "mostrar senha"
   site-icons.php       favicon, ícones de app, manifest e meta tags de compartilhamento
   legal.php            links de privacidade/exclusão de dados e shortcode [amigosecreto_email]
-templates/             um template por rota
-template-parts/        partes reutilizáveis (card de grupo)
+templates/             um template por rota (users.php e user.php: auditoria)
+template-parts/        partes reutilizáveis (resumo do sorteio no painel)
 assets/icons/          ícones gerados por scripts/icons.js (veja "Ícones")
 scripts/icons.js       gerador dos ícones
 scripts/parcel.js      roda o Parcel com pasta temporária no mesmo drive (veja Observações)
@@ -178,7 +201,7 @@ de login) fazem navegação normal.
 
 | Método           | Rota                                  | Quem                       |
 |------------------|---------------------------------------|----------------------------|
-| GET / POST       | `/groups`                             | logado / organizador       |
+| GET / POST       | `/groups`                             | logado                     |
 | GET / POST / DELETE | `/groups/{id}`                     | membro / gestor / gestor   |
 | POST             | `/groups/{id}/participants`           | gestor                     |
 | DELETE           | `/groups/{id}/participants/{user}`    | gestor                     |
@@ -193,6 +216,7 @@ de login) fazem navegação normal.
 | DELETE           | `/me/social/{google|facebook}`       | logado                     |
 | GET              | `/auth/google/nonce`                  | público (Google ativo)     |
 | POST             | `/auth/google` (`credential`, `redirectTo?`, `link?`) | público; `link` exige login |
+| POST             | `/activity/view` (`path`, `title`)    | logado (página vista)      |
 
 "Gestor" = autor do grupo ou administrador.
 

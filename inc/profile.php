@@ -38,9 +38,10 @@ add_action( 'after_password_reset', function ( $user ) {
  * Cria uma conta sem senha escolhida (convite, cadastro ou login social).
  * O login (user_login) é derivado do e-mail; as pessoas entram sempre pelo e-mail.
  *
+ * @param string $source Origem da conta, para o histórico: form, invite, google ou facebook.
  * @return int|WP_Error
  */
-function as_create_user( $email, $name, $role ) {
+function as_create_user( $email, $name, $role, $source = 'form' ) {
 	$base  = sanitize_user( current( explode( '@', $email ) ), true ) ?: 'usuario';
 	$login = $base;
 	$i     = 1;
@@ -59,6 +60,7 @@ function as_create_user( $email, $name, $role ) {
 
 	if ( ! is_wp_error( $user_id ) ) {
 		as_set_needs_password( $user_id );
+		do_action( 'as_user_registered', $user_id, $source );
 	}
 
 	return $user_id;

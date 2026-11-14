@@ -24,5 +24,6 @@ require_once AS_THEME_DIR . '/inc/auth.php';
 require_once AS_THEME_DIR . '/inc/social-login.php';
 require_once AS_THEME_DIR . '/inc/social-settings.php';
 require_once AS_THEME_DIR . '/inc/rest-api.php';
+require_once AS_THEME_DIR . '/inc/activity.php';
 require_once AS_THEME_DIR . '/inc/admin.php';
 require_once AS_THEME_DIR . '/inc/legal.php';
